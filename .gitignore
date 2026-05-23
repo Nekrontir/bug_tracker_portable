@@ -162,3 +162,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 
+# файл хранения багов, по умолчиню должен содержать "[]"
+bugs.json
