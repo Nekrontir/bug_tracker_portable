@@ -1,475 +1,460 @@
-import os
 import json
+import os
 import textwrap
-import tkinter as tk
-from tkinter import messagebox, filedialog
 
-import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QTextEdit,
+    QComboBox,
+    QPushButton,
+    QGroupBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QMessageBox,
+    QFileDialog,
+    QCheckBox,
+    QListWidget,
+    QListWidgetItem,
+    QDialog,
+    QHeaderView,
+)
 
 from src.service import BugService
-from src.settings import load_settings, save_settings  # новый импорт
+from src.settings import load_settings, save_settings
 
 
-class BugTrackerGUI:
+class BugTrackerWindow(QMainWindow):
     """
-    Графический интерфейс для локального баг-трекера.
+    PyQt6‑эквивалент твоего BugTrackerGUI.
     """
 
     STATUSES = ("Open", "In Progress", "Fixed", "Closed")
     PRIORITIES = ("Low", "Normal", "High", "Critical")
-    THEMES = ("flatly", "cosmo", "litera", "darkly", "superhero", "cyborg")
+    # Используем стандартные стили Qt как "темы"
+    THEMES = ("Fusion", "Windows", "WindowsVista")
 
     def __init__(self, service: BugService):
-        """
-        Инициализирует GUI, загружает настройки и строит интерфейс.
-        """
+        super().__init__()
         self.service = service
 
-        # Загружаем настройки
+        # -------- состояние / настройки --------
         self.settings = load_settings()
+        saved_theme = self.settings.get("theme", "Fusion")
 
-        # Тема по умолчанию или из настроек
-        initial_theme = self.settings.get("theme", "flatly")
+        # Применяем тему Qt
+        QApplication.setStyle(saved_theme)
 
-        # Главное окно ttkbootstrap
-        self.root = ttkb.Window(title="Portable Bug Tracker", themename=initial_theme)
-
-        # Геометрия окна: из настроек или дефолт
+        # Геометрия окна: (x, y, w, h) или дефолт
         geometry = self.settings.get("geometry")
-        if geometry:
-            self.root.geometry(geometry)
+        if geometry and len(geometry) == 4:
+            x, y, w, h = geometry
+            self.setGeometry(x, y, w, h)
         else:
-            self.root.geometry("1050x720")
+            self.resize(1050, 720)
+            self.move(100, 100)
 
-        # Поля формы
-        self.title_var = tk.StringVar()
-        self.priority_var = tk.StringVar(value="Normal")
-        self.status_var = tk.StringVar(value="Open")
-        self.version_var = tk.StringVar()
+        self.setWindowTitle("Portable Bug Tracker (PyQt6)")
 
-        # Поля фильтра/поиска
-        self.filter_status_var = tk.StringVar(value="All")
-        self.filter_priority_var = tk.StringVar(value="All")
-        self.search_var = tk.StringVar()
-
-        # Текущий выбранный баг
+        # Состояние
         self.selected_bug_id: int | None = None
-
-        # Копирование/вставка (внутренний буфер)
+        self.selected_for_delete: set[int] = set()
         self.copied_bug_data: dict | None = None
 
+        # Поля формы
+        self.title_edit: QLineEdit | None = None
+        self.priority_combo: QComboBox | None = None
+        self.status_combo: QComboBox | None = None
+        self.version_edit: QLineEdit | None = None
+        self.steps_edit: QTextEdit | None = None
+
+        # Фильтры
+        self.filter_status_combo: QComboBox | None = None
+        self.filter_priority_combo: QComboBox | None = None
+        self.search_edit: QLineEdit | None = None
+
+        # Таблица
+        self.table: QTableWidget | None = None
+
+        # Тема
+        self.theme_combo: QComboBox | None = None
+
         # Флаг "импорт с заменой"
-        self.import_replace_var = tk.BooleanVar(value=False)
-
-        # Чекбоксы для массового удаления
-        self.selected_for_delete: set[int] = set()
-
-        self.style = self.root.style
-
-        # Настройка стиля таблицы: тело без рамок, заголовки с рамкой
-        self.style.configure(
-            "Treeview",
-            borderwidth=0,
-            relief="flat",
-            rowheight=40  # увеличенная высота под 2 строки title
-        )
-        self.style.configure(
-            "Treeview.Heading",
-            borderwidth=2,
-            relief="groove",
-        )
+        self.import_replace_checkbox: QCheckBox | None = None
 
         self.build_ui()
-        self.bind_shortcuts()
-        self.refresh_list()
+        self.refresh_table()
         self.apply_saved_column_widths()
+        self.bind_shortcuts()
 
-        # Сохраняем настройки при закрытии окна
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+    # ---------------- UI ----------------
 
     def build_ui(self):
-        """
-        Строит все элементы интерфейса.
-        """
-        # Верхняя панель: тема + экспорт/импорт
-        top_bar = ttkb.Frame(self.root, padding=(10, 5))
-        top_bar.pack(fill=X)
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+
+        # Верхняя панель: экспорт/импорт + тема
+        top_bar = QHBoxLayout()
+        main_layout.addLayout(top_bar)
 
         # Левая часть: экспорт / импорт
-        export_frame = ttkb.Frame(top_bar)
-        export_frame.pack(side=LEFT)
+        export_widget = QWidget()
+        export_layout = QHBoxLayout(export_widget)
+        export_layout.setContentsMargins(0, 0, 0, 0)
+        top_bar.addWidget(export_widget, stretch=1)
 
-        ttkb.Button(export_frame, text="Экспорт", bootstyle=INFO, command=self.export_bugs).pack(side=LEFT, padx=2)
-        ttkb.Button(export_frame, text="Импорт", bootstyle=WARNING, command=self.import_bugs).pack(side=LEFT, padx=2)
+        export_btn = QPushButton("Экспорт")
+        export_btn.clicked.connect(self.export_bugs)
+        import_btn = QPushButton("Импорт")
+        import_btn.clicked.connect(self.import_bugs)
 
-        ttkb.Checkbutton(
-            export_frame,
-            text="с заменой",
-            variable=self.import_replace_var,
-            bootstyle="round-toggle"
-        ).pack(side=LEFT, padx=8)
+        self.import_replace_checkbox = QCheckBox("с заменой")
 
-        # Правая часть: выбор темы
-        theme_frame = ttkb.Frame(top_bar)
-        theme_frame.pack(side=RIGHT)
+        export_layout.addWidget(export_btn)
+        export_layout.addWidget(import_btn)
+        export_layout.addWidget(self.import_replace_checkbox)
+        export_layout.addStretch()
 
-        ttkb.Label(theme_frame, text="Тема:").pack(side=LEFT)
-        self.theme_combo = ttkb.Combobox(
-            theme_frame,
-            values=self.THEMES,
-            state="readonly",
-            width=10
-        )
-        # Установим выбранную тему в комбобоксе
-        current_theme = self.settings.get("theme", "flatly")
+        # Правая часть: тема
+        theme_widget = QWidget()
+        theme_layout = QHBoxLayout(theme_widget)
+        theme_layout.setContentsMargins(0, 0, 0, 0)
+        top_bar.addWidget(theme_widget)
+
+        theme_label = QLabel("Тема:")
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(self.THEMES)
+        current_theme = self.settings.get("theme", "Fusion")
         if current_theme in self.THEMES:
-            self.theme_combo.set(current_theme)
+            self.theme_combo.setCurrentText(current_theme)
         else:
-            self.theme_combo.set("flatly")
+            self.theme_combo.setCurrentText("Fusion")
 
-        self.theme_combo.pack(side=LEFT, padx=2)
-        ttkb.Button(theme_frame, text="Применить", bootstyle=INFO, command=self.change_theme).pack(side=LEFT, padx=2)
+        apply_theme_btn = QPushButton("Применить")
+        apply_theme_btn.clicked.connect(self.change_theme)
 
-        # Основной контейнер
-        frame = ttkb.Frame(self.root, padding=10)
-        frame.pack(fill=BOTH, expand=YES)
+        theme_layout.addWidget(theme_label)
+        theme_layout.addWidget(self.theme_combo)
+        theme_layout.addWidget(apply_theme_btn)
 
         # Форма добавления/редактирования
-        form = ttkb.Labelframe(frame, text="Новый баг / редактирование", padding=10)
-        form.pack(fill=X)
+        form_group = QGroupBox("Новый баг / редактирование")
+        form_layout = QGridLayout(form_group)
+        main_layout.addWidget(form_group)
 
-        ttkb.Label(form, text="Заголовок").grid(row=0, column=0, sticky=W)
-        self.title_entry = ttkb.Entry(form, textvariable=self.title_var, width=40)
-        self.title_entry.grid(row=0, column=1, sticky=EW, padx=5)
+        # Заголовок
+        form_layout.addWidget(QLabel("Заголовок"), 0, 0)
+        self.title_edit = QLineEdit()
+        form_layout.addWidget(self.title_edit, 0, 1)
 
-        ttkb.Label(form, text="Приоритет").grid(row=0, column=2, sticky=W)
-        self.priority_combo = ttkb.Combobox(
-            form,
-            textvariable=self.priority_var,
-            values=self.PRIORITIES,
-            state="readonly",
-            width=12
-        )
-        self.priority_combo.grid(row=0, column=3, sticky=EW, padx=5)
+        # Приоритет
+        form_layout.addWidget(QLabel("Приоритет"), 0, 2)
+        self.priority_combo = QComboBox()
+        self.priority_combo.addItems(self.PRIORITIES)
+        self.priority_combo.setCurrentText("Normal")
+        form_layout.addWidget(self.priority_combo, 0, 3)
 
-        ttkb.Label(form, text="Статус").grid(row=0, column=4, sticky=W)
-        self.status_combo = ttkb.Combobox(
-            form,
-            textvariable=self.status_var,
-            values=self.STATUSES,
-            state="readonly",
-            width=15
-        )
-        self.status_combo.grid(row=0, column=5, sticky=EW, padx=5)
+        # Статус
+        form_layout.addWidget(QLabel("Статус"), 0, 4)
+        self.status_combo = QComboBox()
+        self.status_combo.addItems(self.STATUSES)
+        self.status_combo.setCurrentText("Open")
+        form_layout.addWidget(self.status_combo, 0, 5)
 
-        ttkb.Label(form, text="Версия").grid(row=0, column=6, sticky=W)
-        ttkb.Entry(form, textvariable=self.version_var, width=10).grid(
-            row=0, column=7, sticky=EW, padx=5
-        )
+        # Версия
+        form_layout.addWidget(QLabel("Версия"), 0, 6)
+        self.version_edit = QLineEdit()
+        form_layout.addWidget(self.version_edit, 0, 7)
 
-        ttkb.Label(form, text="Заметки").grid(row=1, column=0, sticky=NW, pady=5)
-        self.steps_text = tk.Text(form, height=6, width=90)
-        self.steps_text.grid(row=1, column=1, columnspan=7, sticky=EW, padx=5, pady=5)
+        # Заметки
+        form_layout.addWidget(QLabel("Заметки"), 1, 0, Qt.AlignmentFlag.AlignTop)
+        self.steps_edit = QTextEdit()
+        form_layout.addWidget(self.steps_edit, 1, 1, 1, 7)
 
-        form.columnconfigure(1, weight=1)
-        form.columnconfigure(3, weight=0)
-        form.columnconfigure(5, weight=0)
-        form.columnconfigure(7, weight=0)
+        # Кнопки формы
+        form_btns_widget = QWidget()
+        form_btns_layout = QHBoxLayout(form_btns_widget)
+        main_layout.addWidget(form_btns_widget)
 
-        # Кнопки формы (под формой)
-        form_btns = ttkb.Frame(frame)
-        form_btns.pack(fill=X, pady=5)
+        add_btn = QPushButton("Добавить баг")
+        add_btn.clicked.connect(self.add_bug)
+        save_btn = QPushButton("Сохранить изменения")
+        save_btn.clicked.connect(self.save_changes)
+        clear_btn = QPushButton("Очистить форму")
+        clear_btn.clicked.connect(self.clear_inputs)
+        attach_btn = QPushButton("Прикрепить файл")
+        attach_btn.clicked.connect(self.attach_file)
 
-        ttkb.Button(form_btns, text="Добавить баг", bootstyle=SUCCESS, command=self.add_bug).pack(side=LEFT, padx=5)
-        ttkb.Button(form_btns, text="Сохранить изменения", bootstyle=PRIMARY, command=self.save_changes).pack(side=LEFT, padx=5)
-        ttkb.Button(form_btns, text="Очистить форму", bootstyle=SECONDARY, command=self.clear_inputs).pack(side=LEFT, padx=5)
-        ttkb.Button(form_btns, text="Прикрепить файл", bootstyle=INFO, command=self.attach_file).pack(side=LEFT, padx=5)
+        form_btns_layout.addWidget(add_btn)
+        form_btns_layout.addWidget(save_btn)
+        form_btns_layout.addWidget(clear_btn)
+        form_btns_layout.addWidget(attach_btn)
+        form_btns_layout.addStretch()
 
-        # Фильтр + поиск
-        filter_frame = ttkb.Labelframe(frame, text="Фильтр и поиск", padding=10)
-        filter_frame.pack(fill=X, pady=5)
+        # Фильтр и поиск
+        filter_group = QGroupBox("Фильтр и поиск")
+        filter_layout = QGridLayout(filter_group)
+        main_layout.addWidget(filter_group)
 
-        ttkb.Label(filter_frame, text="Статус").grid(row=0, column=0, sticky=W)
-        self.filter_status_combo = ttkb.Combobox(
-            filter_frame,
-            textvariable=self.filter_status_var,
-            values=("All",) + self.STATUSES,
-            state="readonly",
-            width=18
-        )
-        self.filter_status_combo.grid(row=0, column=1, sticky=W, padx=5)
+        filter_layout.addWidget(QLabel("Статус"), 0, 0)
+        self.filter_status_combo = QComboBox()
+        self.filter_status_combo.addItems(["All"] + list(self.STATUSES))
+        self.filter_status_combo.setCurrentText("All")
+        filter_layout.addWidget(self.filter_status_combo, 0, 1)
 
-        ttkb.Label(filter_frame, text="Приоритет").grid(row=0, column=2, sticky=W)
-        self.filter_priority_combo = ttkb.Combobox(
-            filter_frame,
-            textvariable=self.filter_priority_var,
-            values=("All",) + self.PRIORITIES,
-            state="readonly",
-            width=18
-        )
-        self.filter_priority_combo.grid(row=0, column=3, sticky=W, padx=5)
+        filter_layout.addWidget(QLabel("Приоритет"), 0, 2)
+        self.filter_priority_combo = QComboBox()
+        self.filter_priority_combo.addItems(["All"] + list(self.PRIORITIES))
+        self.filter_priority_combo.setCurrentText("All")
+        filter_layout.addWidget(self.filter_priority_combo, 0, 3)
 
-        ttkb.Label(filter_frame, text="Поиск в заголовке").grid(row=0, column=4, sticky=W)
-        ttkb.Entry(filter_frame, textvariable=self.search_var, width=22).grid(row=0, column=5, sticky=W, padx=5)
+        filter_layout.addWidget(QLabel("Поиск в заголовке"), 0, 4)
+        self.search_edit = QLineEdit()
+        filter_layout.addWidget(self.search_edit, 0, 5)
 
-        ttkb.Button(filter_frame, text="Применить", bootstyle=PRIMARY, command=self.apply_filter).grid(row=0, column=6, padx=10)
-        ttkb.Button(filter_frame, text="Сбросить", bootstyle=SECONDARY, command=self.reset_filter).grid(row=0, column=7, padx=5)
+        apply_filter_btn = QPushButton("Применить")
+        apply_filter_btn.clicked.connect(self.apply_filter)
+        reset_filter_btn = QPushButton("Сбросить")
+        reset_filter_btn.clicked.connect(self.reset_filter)
+
+        filter_layout.addWidget(apply_filter_btn, 0, 6)
+        filter_layout.addWidget(reset_filter_btn, 0, 7)
 
         # Таблица багов
-        list_frame = ttkb.Labelframe(frame, text="Список багов", padding=10)
-        list_frame.pack(fill=BOTH, expand=YES)
+        list_group = QGroupBox("Список багов")
+        list_layout = QVBoxLayout(list_group)
+        main_layout.addWidget(list_group, stretch=1)
 
         cols = ("Selected", "ID", "Title", "Status", "Priority", "Version", "Created")
-        self.tree = ttkb.Treeview(list_frame, columns=cols, show="headings")
+        self.table = QTableWidget(0, len(cols))
+        self.table.setHorizontalHeaderLabels(cols)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.cellClicked.connect(self.on_table_click)
+        self.table.cellDoubleClicked.connect(self.on_table_double_click)
 
-        for c in cols:
-            self.tree.heading(c, text=c)
-            if c == "Title":
-                self.tree.column(c, width=250, anchor=W)
-            elif c == "Selected":
-                self.tree.column(c, width=70, anchor=CENTER)
-            else:
-                self.tree.column(c, width=90, anchor=CENTER)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
-        self.tree.pack(fill=BOTH, expand=YES)
-        self.tree.bind("<<TreeviewSelect>>", self.on_select)
-        self.tree.bind("<Button-1>", self.on_tree_click)
+        list_layout.addWidget(self.table)
 
         # Нижняя панель: вложения + удаление
-        bottom_btns = ttkb.Frame(frame)
-        bottom_btns.pack(fill=X, pady=5)
-        ttkb.Button(bottom_btns, text="Вложения...", bootstyle=INFO, command=self.show_attachments).pack(side=LEFT, padx=5)
-        ttkb.Button(bottom_btns, text="Удалить выбранные", bootstyle=DANGER, command=self.delete_selected_bugs).pack(side=RIGHT, padx=5)
+        bottom_widget = QWidget()
+        bottom_layout = QHBoxLayout(bottom_widget)
+        main_layout.addWidget(bottom_widget)
 
-    # ---------- Настройки / колонки ----------
+        attachments_btn = QPushButton("Вложения...")
+        attachments_btn.clicked.connect(self.show_attachments)
+        delete_btn = QPushButton("Удалить выбранные")
+        delete_btn.clicked.connect(self.delete_selected_bugs)
 
-    def apply_saved_column_widths(self) -> None:
-        """
-        Применяет сохранённые ширины колонок Treeview из настроек, если они есть.
-        """
-        cols_widths = self.settings.get("tree_columns")
+        bottom_layout.addWidget(attachments_btn)
+        bottom_layout.addStretch()
+        bottom_layout.addWidget(delete_btn)
+
+    # ---------------- Настройки ----------------
+
+    def apply_saved_column_widths(self):
+        cols_widths = self.settings.get("table_columns")
         if not cols_widths:
             return
-
-        for col, width in cols_widths.items():
-            if col in self.tree["columns"]:
-                try:
-                    self.tree.column(col, width=int(width))
-                except Exception:
-                    pass
+        for col_name, width in cols_widths.items():
+            for idx in range(self.table.columnCount()):
+                header_item = self.table.horizontalHeaderItem(idx)
+                if header_item is None:
+                    continue
+                if header_item.text() == col_name:
+                    self.table.setColumnWidth(idx, int(width))
 
     def collect_current_settings(self) -> dict:
-        """
-        Собирает текущие настройки (тема, геометрия, ширина колонок) в словарь.
-        """
-        theme = self.theme_combo.get() or self.root.style.theme.name
-        geometry = self.root.geometry()
+        # Тема
+        theme = self.theme_combo.currentText()
 
-        cols_widths = {}
-        for col in self.tree["columns"]:
-            try:
-                cols_widths[col] = self.tree.column(col, "width")
-            except Exception:
-                pass
+        # Геометрия (x, y, w, h)
+        geo = self.geometry()
+        geometry = (geo.x(), geo.y(), geo.width(), geo.height())
+
+        # Ширина колонок
+        cols_widths: dict[str, int] = {}
+        for idx in range(self.table.columnCount()):
+            header_item = self.table.horizontalHeaderItem(idx)
+            if header_item is None:
+                continue
+            name = header_item.text()
+            cols_widths[name] = self.table.columnWidth(idx)
 
         return {
             "theme": theme,
             "geometry": geometry,
-            "tree_columns": cols_widths,
+            "table_columns": cols_widths,
         }
 
-    def on_close(self):
-        """
-        Обработчик закрытия окна: сохраняет настройки и закрывает приложение.
-        """
+    def closeEvent(self, event):
+        # Сохраняем настройки при закрытии
         self.settings.update(self.collect_current_settings())
         save_settings(self.settings)
-        self.root.destroy()
+        event.accept()
 
-    # ---------- Темы ----------
+    # ---------------- Темы ----------------
 
     def change_theme(self):
-        """
-        Меняет тему оформления и обновляет её в настройках.
-        """
-        theme = self.theme_combo.get()
+        theme = self.theme_combo.currentText()
         if theme:
-            self.style.theme_use(theme)
+            QApplication.setStyle(theme)
             self.settings["theme"] = theme
 
-    # ---------- Работа со списком ----------
+    # ---------------- Работа со списком ----------------
 
     def wrap_title(self, text: str, width_chars: int = 30) -> str:
-        """
-        Оборачивает заголовок по числу символов для отображения в таблице.
-        """
         if not text:
             return ""
         lines = textwrap.wrap(text, width=width_chars)
         return "\n".join(lines)
 
-    def refresh_list(self, bugs=None):
-        """
-        Обновляет содержимое таблицы багов (с учётом фильтра).
-        """
-        self.tree.delete(*self.tree.get_children())
+    def refresh_table(self, bugs=None):
+        self.table.setRowCount(0)
         source = bugs if bugs is not None else self.service.get_all()
         for bug in source:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+
             checked = "[x]" if bug.id in self.selected_for_delete else "[ ]"
             wrapped_title = self.wrap_title(bug.title, width_chars=30)
-            self.tree.insert("", "end", values=(
+
+            values = [
                 checked,
-                bug.id,
+                str(bug.id),
                 wrapped_title,
                 bug.status,
                 bug.priority,
                 getattr(bug, "version", ""),
-                bug.created_at
-            ))
+                str(bug.created_at),
+            ]
+
+            for col, val in enumerate(values):
+                item = QTableWidgetItem(val)
+                if col == 0:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, col, item)
 
     def apply_filter(self):
-        """
-        Применяет фильтр по статусу, приоритету и поисковую строку.
-        """
-        status = self.filter_status_var.get()
-        priority = self.filter_priority_var.get()
-        query = self.search_var.get().strip()
+        status = self.filter_status_combo.currentText()
+        priority = self.filter_priority_combo.currentText()
+        query = self.search_edit.text().strip()
         filtered = self.service.filter_bugs(status=status, priority=priority, query=query)
-        self.refresh_list(filtered)
+        self.refresh_table(filtered)
 
     def reset_filter(self):
-        """
-        Сбрасывает фильтр и поиск.
-        """
-        self.filter_status_var.set("All")
-        self.filter_priority_var.set("All")
-        self.search_var.set("")
-        self.refresh_list()
+        self.filter_status_combo.setCurrentText("All")
+        self.filter_priority_combo.setCurrentText("All")
+        self.search_edit.clear()
+        self.refresh_table()
 
-    # ---------- Форма / выбор ----------
+    # ---------------- Форма / выбор ----------------
 
     def clear_inputs(self):
-        """
-        Очищает поля формы и снимает выбор бага.
-        """
-        self.title_var.set("")
-        self.priority_var.set("Normal")
-        self.status_var.set("Open")
-        self.version_var.set("")
-        self.steps_text.delete("1.0", "end")
+        self.title_edit.clear()
+        self.priority_combo.setCurrentText("Normal")
+        self.status_combo.setCurrentText("Open")
+        self.version_edit.clear()
+        self.steps_edit.clear()
         self.selected_bug_id = None
-        self.tree.selection_remove(self.tree.selection())
-        self.title_entry.focus_set()
+        self.table.clearSelection()
+        self.title_edit.setFocus()
 
-    def get_selected_bug_id(self):
-        """
-        Возвращает ID выделенного в таблице бага или None.
-        """
-        sel = self.tree.selection()
-        if not sel:
+    def get_selected_bug_id(self) -> int | None:
+        row = self.table.currentRow()
+        if row < 0:
             return None
-        values = self.tree.item(sel[0], "values")
-        if not values:
+        item = self.table.item(row, 1)  # ID во второй колонке
+        if not item:
             return None
         try:
-            return int(values[1])  # ID во второй колонке
+            return int(item.text())
         except ValueError:
             return None
 
-    def on_select(self, event=None):
-        """
-        Обработчик выбора строки в таблице — заполняет форму данными бага.
-        """
+    def on_table_double_click(self, row: int, column: int):
+        # Двойной клик — заполняем форму
+        self.fill_form_from_selected()
+
+    def on_table_click(self, row: int, column: int):
+        # Клик по первой колонке — "чекбокс"
+        if column == 0:
+            item_id = self.table.item(row, 1)
+            if not item_id:
+                return
+            try:
+                bug_id = int(item_id.text())
+            except ValueError:
+                return
+
+            if bug_id in self.selected_for_delete:
+                self.selected_for_delete.remove(bug_id)
+                self.table.item(row, 0).setText("[ ]")
+            else:
+                self.selected_for_delete.add(bug_id)
+                self.table.item(row, 0).setText("[x]")
+        else:
+            # просто выбор строки — для формы
+            pass
+
+    def fill_form_from_selected(self):
         bug_id = self.get_selected_bug_id()
         if bug_id is None:
             return
 
-        bug = self.service.get_by_id(b_id := bug_id)
+        bug = self.service.get_by_id(bug_id)
         if not bug:
             return
 
-        self.selected_bug_id = b_id
-        self.title_var.set(bug.title)
-        self.priority_var.set(bug.priority)
-        self.status_var.set(bug.status)
-        self.version_var.set(getattr(bug, "version", ""))
-        self.steps_text.delete("1.0", "end")
-        self.steps_text.insert("1.0", bug.steps)
+        self.selected_bug_id = bug_id
+        self.title_edit.setText(bug.title)
+        self.priority_combo.setCurrentText(bug.priority)
+        self.status_combo.setCurrentText(bug.status)
+        self.version_edit.setText(getattr(bug, "version", ""))
+        self.steps_edit.setPlainText(bug.steps)
 
-    # ---------- Клик по чекбоксу в таблице ----------
-
-    def on_tree_click(self, event):
-        """
-        Обрабатывает клики по первой колонке (чекбоксы для массового удаления).
-        """
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-
-        column = self.tree.identify_column(event.x)  # '#1', '#2', ...
-        row_id = self.tree.identify_row(event.y)
-        if not row_id:
-            return
-
-        col_index = int(column.replace("#", ""))
-        if col_index != 1:  # "Selected"
-            return
-
-        values = list(self.tree.item(row_id, "values"))
-        if not values:
-            return
-
-        try:
-            bug_id = int(values[1])
-        except ValueError:
-            return
-
-        if bug_id in self.selected_for_delete:
-            self.selected_for_delete.remove(bug_id)
-            values[0] = "[ ]"
-        else:
-            self.selected_for_delete.add(bug_id)
-            values[0] = "[x]"
-
-        self.tree.item(row_id, values=values)
-
-    # ---------- Операции с багами ----------
+    # ---------------- Операции с багами ----------------
 
     def add_bug(self):
-        """
-        Добавляет новый баг из данных формы.
-        """
-        title = self.title_var.get().strip()
-        priority = self.priority_var.get().strip() or "Normal"
-        status = self.status_var.get().strip() or "Open"
-        version = self.version_var.get().strip()
-        steps = self.steps_text.get("1.0", "end").strip()
+        title = self.title_edit.text().strip()
+        priority = self.priority_combo.currentText() or "Normal"
+        status = self.status_combo.currentText() or "Open"
+        version = self.version_edit.text().strip()
+        steps = self.steps_edit.toPlainText().strip()
 
         if not title:
-            messagebox.showwarning("Ошибка", "Введите заголовок бага")
+            QMessageBox.warning(self, "Ошибка", "Введите заголовок бага")
             return
 
         self.service.add_bug(title, priority, status, steps, version)
-        self.refresh_list()
+        self.refresh_table()
         self.clear_inputs()
 
     def save_changes(self):
-        """
-        Сохраняет изменения для выбранного бага.
-        """
         if self.selected_bug_id is None:
-            messagebox.showinfo("Инфо", "Выберите баг в списке")
+            QMessageBox.information(self, "Инфо", "Выберите баг в списке")
             return
 
-        title = self.title_var.get().strip()
-        priority = self.priority_var.get().strip() or "Normal"
-        status = self.status_var.get().strip() or "Open"
-        version = self.version_var.get().strip()
-        steps = self.steps_text.get("1.0", "end").strip()
+        title = self.title_edit.text().strip()
+        priority = self.priority_combo.currentText() or "Normal"
+        status = self.status_combo.currentText() or "Open"
+        version = self.version_edit.text().strip()
+        steps = self.steps_edit.toPlainText().strip()
 
         if not title:
-            messagebox.showwarning("Ошибка", "Заголовок не может быть пустым")
+            QMessageBox.warning(self, "Ошибка", "Заголовок не может быть пустым")
             return
 
         updated = self.service.update_bug(
@@ -478,22 +463,23 @@ class BugTrackerGUI:
             priority=priority,
             status=status,
             steps=steps,
-            version=version
+            version=version,
         )
         if not updated:
-            messagebox.showerror("Ошибка", "Не удалось обновить баг (возможно, он был удалён)")
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                "Не удалось обновить баг (возможно, он был удалён)",
+            )
             return
 
         self.apply_filter()
 
-    def delete_bug(self, bug_id: int | None = None):
-        """
-        Удаляет один баг (с подтверждением и учётом вложений).
-        """
+    def delete_bug(self, bug_id: int | None = None) -> bool:
         if bug_id is None:
             bug_id = self.get_selected_bug_id()
         if bug_id is None:
-            messagebox.showinfo("Инфо", "Выберите баг в списке")
+            QMessageBox.information(self, "Инфо", "Выберите баг в списке")
             return False
 
         bug = self.service.get_by_id(bug_id)
@@ -504,19 +490,22 @@ class BugTrackerGUI:
         if getattr(bug, "attachments", []):
             warn_text += "\n\nУ него есть вложения. Удалить их тоже?"
 
-        if not messagebox.askyesno("Удаление", warn_text):
+        reply = QMessageBox.question(
+            self,
+            "Удаление",
+            warn_text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+        if reply != QMessageBox.StandardButton.Yes:
             return False
 
         self.service.delete_bug(bug_id)
         return True
 
     def delete_selected_bugs(self):
-        """
-        Удаляет один или несколько багов (по чекбоксам) с подтверждением.
-        """
         if not self.selected_for_delete:
             if self.delete_bug():
-                self.refresh_list()
+                self.refresh_table()
                 self.clear_inputs()
             return
 
@@ -535,17 +524,23 @@ class BugTrackerGUI:
         else:
             text = f"Удалить выбранные баги: {ids}?"
 
-        if not messagebox.askyesno("Удаление", text):
+        reply = QMessageBox.question(
+            self,
+            "Удаление",
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         for b_id in ids:
             self.service.delete_bug(b_id)
 
         self.selected_for_delete.clear()
-        self.refresh_list()
+        self.refresh_table()
         self.clear_inputs()
 
-    # ---------- Вложения ----------
+    # ---------------- Вложения ----------------
 
     def attach_file(self):
         """
@@ -553,11 +548,16 @@ class BugTrackerGUI:
         """
         bug_id = self.get_selected_bug_id()
         if bug_id is None:
-            messagebox.showinfo("Инфо", "Сначала выберите баг в списке, чтобы прикрепить файл")
+            QMessageBox.information(
+                self,
+                "Инфо",
+                "Сначала выберите баг в списке, чтобы прикрепить файл",
+            )
             return
 
-        paths = filedialog.askopenfilenames(
-            title="Выберите файлы для прикрепления"
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Выберите файлы для прикрепления",
         )
         if not paths:
             return
@@ -570,7 +570,11 @@ class BugTrackerGUI:
         bug.attachments.extend(new_names)
         self.service.storage.save(self.service.bugs)
 
-        messagebox.showinfo("Вложения", f"Прикреплено файлов: {len(new_names)}")
+        QMessageBox.information(
+            self,
+            "Вложения",
+            f"Прикреплено файлов: {len(new_names)}",
+        )
 
     def show_attachments(self):
         """
@@ -578,84 +582,93 @@ class BugTrackerGUI:
         """
         bug_id = self.get_selected_bug_id()
         if bug_id is None:
-            messagebox.showinfo("Вложения", "Сначала выберите баг в списке")
+            QMessageBox.information(self, "Вложения", "Сначала выберите баг в списке")
             return
 
         bug = self.service.get_by_id(bug_id)
         if not bug:
             return
 
-        files = bug.attachments if hasattr(bug, "attachments") else []
+        files = getattr(bug, "attachments", []) or []
         if not files:
-            messagebox.showinfo("Вложения", "У этого бага нет вложений")
+            QMessageBox.information(self, "Вложения", "У этого бага нет вложений")
             return
 
-        win = ttkb.Toplevel(self.root)
-        win.title(f"Вложения бага #{bug_id}")
-        win.geometry("400x300")
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Вложения бага #{bug_id}")
+        dlg.resize(400, 300)
 
-        frame = ttkb.Frame(win, padding=10)
-        frame.pack(fill=BOTH, expand=YES)
+        layout = QVBoxLayout(dlg)
 
-        listbox = tk.Listbox(frame)
-        listbox.pack(fill=BOTH, expand=YES, side=TOP)
-
+        list_widget = QListWidget()
         for name in files:
-            listbox.insert(END, name)
+            QListWidgetItem(name, list_widget)
+        layout.addWidget(list_widget)
 
-        btns = ttkb.Frame(frame)
-        btns.pack(fill=X, side=BOTTOM, pady=5)
+        btns_widget = QWidget()
+        btns_layout = QHBoxLayout(btns_widget)
+        layout.addWidget(btns_widget)
 
         def open_file():
-            sel = listbox.curselection()
-            if not sel:
+            item = list_widget.currentItem()
+            if not item:
                 return
-            fname = listbox.get(sel[0])
+            fname = item.text()
             path = self.service.attachments.get_attachment_path(bug_id, fname)
             if not os.path.isfile(path):
-                messagebox.showerror("Ошибка", f"Файл не найден:\n{path}")
+                QMessageBox.critical(dlg, "Ошибка", f"Файл не найден:\n{path}")
                 return
             try:
-                import subprocess, sys
-                if sys.platform.startswith("win"):
+                import subprocess
+                import sys as _sys
+                if _sys.platform.startswith("win"):
                     os.startfile(path)
-                elif sys.platform == "darwin":
+                elif _sys.platform == "darwin":
                     subprocess.call(["open", path])
                 else:
                     subprocess.call(["xdg-open", path])
             except Exception as e:
-                messagebox.showerror("Ошибка", str(e))
+                QMessageBox.critical(dlg, "Ошибка", str(e))
 
         def open_folder():
             folder = self.service.attachments.bug_folder_path(bug_id)
             if not os.path.isdir(folder):
-                messagebox.showerror("Ошибка", f"Папка не найдена:\n{folder}")
+                QMessageBox.critical(dlg, "Ошибка", f"Папка не найдена:\n{folder}")
                 return
             try:
-                import subprocess, sys
-                if sys.platform.startswith("win"):
+                import subprocess
+                import sys as _sys
+                if _sys.platform.startswith("win"):
                     os.startfile(folder)
-                elif sys.platform == "darwin":
+                elif _sys.platform == "darwin":
                     subprocess.call(["open", folder])
                 else:
                     subprocess.call(["xdg-open", folder])
             except Exception as e:
-                messagebox.showerror("Ошибка", str(e))
+                QMessageBox.critical(dlg, "Ошибка", str(e))
 
-        ttkb.Button(btns, text="Открыть файл", bootstyle=PRIMARY, command=open_file).pack(side=LEFT, padx=5)
-        ttkb.Button(btns, text="Открыть папку", bootstyle=SECONDARY, command=open_folder).pack(side=LEFT, padx=5)
-        ttkb.Button(btns, text="Закрыть", bootstyle=SECONDARY, command=win.destroy).pack(side=RIGHT, padx=5)
+        open_file_btn = QPushButton("Открыть файл")
+        open_file_btn.clicked.connect(open_file)
+        open_folder_btn = QPushButton("Открыть папку")
+        open_folder_btn.clicked.connect(open_folder)
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(dlg.accept)
 
-    # ---------- Экспорт / импорт ----------
+        btns_layout.addWidget(open_file_btn)
+        btns_layout.addWidget(open_folder_btn)
+        btns_layout.addStretch()
+        btns_layout.addWidget(close_btn)
+
+        dlg.exec()
+
+    # ---------------- Экспорт / импорт ----------------
 
     def export_bugs(self):
-        """
-        Экспортирует баги и вложения в JSON или ZIP.
-        """
-        path = filedialog.asksaveasfilename(
-            defaultextension=".zip",
-            filetypes=[("ZIP archive", "*.zip"), ("JSON files", "*.json"), ("All files", "*.*")],
-            title="Экспорт багов (ZIP или JSON)"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт багов (ZIP или JSON)",
+            filter="ZIP archive (*.zip);;JSON files (*.json);;All files (*.*)",
+            defaultSuffix="zip",
         )
         if not path:
             return
@@ -664,60 +677,47 @@ class BugTrackerGUI:
                 self.service.storage.export_to_file(path, self.service.bugs)
             else:
                 self.service.export_bugs(path)
-            messagebox.showinfo("Экспорт", "Экспорт успешно завершён")
+            QMessageBox.information(self, "Экспорт", "Экспорт успешно завершён")
         except Exception as e:
-            messagebox.showerror("Ошибка экспорта", str(e))
+            QMessageBox.critical(self, "Ошибка экспорта", str(e))
 
     def import_bugs(self):
-        """
-        Импортирует баги и вложения из JSON или ZIP.
-        """
-        path = filedialog.askopenfilename(
-            filetypes=[("ZIP/JSON files", "*.zip *.json"), ("All files", "*.*")],
-            title="Импорт багов"
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Импорт багов",
+            filter="ZIP/JSON files (*.zip *.json);;All files (*.*)",
         )
         if not path:
             return
         try:
-            merge = not self.import_replace_var.get()
+            merge = not self.import_replace_checkbox.isChecked()
             self.service.import_bugs(path, merge=merge)
-            self.refresh_list()
-            messagebox.showinfo("Импорт", "Импорт успешно завершён")
+            self.refresh_table()
+            QMessageBox.information(self, "Импорт", "Импорт успешно завершён")
         except Exception as e:
-            messagebox.showerror("Ошибка импорта", str(e))
+            QMessageBox.critical(self, "Ошибка импорта", str(e))
 
-    # ---------- Хоткеи ----------
+    # ---------------- Хоткеи ----------------
 
     def bind_shortcuts(self):
-        """
-        Регистрирует глобальные горячие клавиши.
-        """
-        self.root.bind_all("<Control-n>", self.on_new_shortcut)
-        self.root.bind_all("<Control-N>", self.on_new_shortcut)
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new_shortcut)
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.on_save_shortcut)
+        QShortcut(QKeySequence("Delete"), self, activated=self.on_delete_shortcut)
+        QShortcut(QKeySequence("Ctrl+C"), self, activated=self.on_copy_shortcut)
+        QShortcut(QKeySequence("Ctrl+V"), self, activated=self.on_paste_shortcut)
 
-        self.root.bind_all("<Control-s>", self.on_save_shortcut)
-        self.root.bind_all("<Control-S>", self.on_save_shortcut)
-
-        self.root.bind_all("<Delete>", self.on_delete_shortcut)
-
-        self.root.bind_all("<Control-c>", self.on_copy_shortcut)
-        self.root.bind_all("<Control-C>", self.on_copy_shortcut)
-
-        self.root.bind_all("<Control-v>", self.on_paste_shortcut)
-        self.root.bind_all("<Control-V>", self.on_paste_shortcut)
-
-    def on_new_shortcut(self, event=None):
+    def on_new_shortcut(self):
         self.clear_inputs()
 
-    def on_save_shortcut(self, event=None):
+    def on_save_shortcut(self):
         self.save_changes()
 
-    def on_delete_shortcut(self, event=None):
+    def on_delete_shortcut(self):
         self.delete_selected_bugs()
 
-    def on_copy_shortcut(self, event=None):
+    def on_copy_shortcut(self):
         """
-        Копирует данные выбранного бага во внутренний и системный буфер обмена.
+        Копирует данные выбранного бага в JSON в системный буфер.
         """
         bug_id = self.get_selected_bug_id()
         if bug_id is None:
@@ -735,20 +735,15 @@ class BugTrackerGUI:
         }
 
         data = json.dumps(self.copied_bug_data, ensure_ascii=False, indent=2)
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(data)
-        except tk.TclError:
-            pass
+        clipboard = QApplication.clipboard()
+        clipboard.setText(data)
 
-    def on_paste_shortcut(self, event=None):
+    def on_paste_shortcut(self):
         """
-        Вставляет данные бага из системного буфера или внутреннего буфера в форму.
+        Вставляет данные бага из JSON в системном буфере или внутреннего буфера.
         """
-        try:
-            clip = self.root.clipboard_get()
-        except tk.TclError:
-            clip = ""
+        clipboard = QApplication.clipboard()
+        clip = clipboard.text()
 
         pasted = None
         if clip:
@@ -763,17 +758,8 @@ class BugTrackerGUI:
         if not data:
             return
 
-        self.title_var.set(data.get("title", ""))
-        self.priority_var.set(data.get("priority", "Normal"))
-        self.status_var.set(data.get("status", "Open"))
-        self.version_var.set(data.get("version", ""))
-        self.steps_text.delete("1.0", "end")
-        self.steps_text.insert("1.0", data.get("steps", ""))
-
-    # ---------- Запуск ----------
-
-    def run(self):
-        """
-        Запускает главный цикл приложения.
-        """
-        self.root.mainloop()
+        self.title_edit.setText(data.get("title", ""))
+        self.priority_combo.setCurrentText(data.get("priority", "Normal"))
+        self.status_combo.setCurrentText(data.get("status", "Open"))
+        self.version_edit.setText(data.get("version", ""))
+        self.steps_edit.setPlainText(data.get("steps", ""))
