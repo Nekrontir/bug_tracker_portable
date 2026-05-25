@@ -1,15 +1,16 @@
+import sys
+from PyQt6.QtWidgets import QApplication
+
 from src.service import BugService
-from src.gui import BugTrackerGUI
+from src.gui import BugTrackerWindow
 
 
 def main():
-    """
-    Точка входа в приложение Portable Bug Tracker.
-    Создаёт сервис, GUI и запускает главный цикл.
-    """
+    app = QApplication(sys.argv)
     service = BugService("bugs.json")
-    app = BugTrackerGUI(service)
-    app.run()
+    win = BugTrackerWindow(service)
+    win.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
