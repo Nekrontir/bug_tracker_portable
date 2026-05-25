@@ -68,16 +68,21 @@ project_root/
 
 ```json
 {
-  "theme": "flatly",
-  "geometry": "1050x720+200+100",
-  "tree_columns": {
-    "Selected": 70,
-    "ID": 90,
-    "Title": 260,
-    "Status": 90,
-    "Priority": 90,
-    "Version": 80,
-    "Created": 110
+  "theme": "Fusion",
+  "geometry": [
+    473,
+    172,
+    1050,
+    720
+  ],
+  "table_columns": {
+    "Selected": 100,
+    "ID": 28,
+    "Title": 606,
+    "Status": 43,
+    "Priority": 46,
+    "Version": 64,
+    "Created": 117
   }
 }
 ```
@@ -102,5 +107,5 @@ pyinstaller --onefile --noconsole -n PortableBugTracker main.py
 
 - Python 3.10+
 - Библиотеки:
-    - `ttkbootstrap`
+    - `PyQt6`
     - для сборки в exe — `pyinstaller` (опционально)
