@@ -112,7 +112,7 @@ class BugService:
                 shutil.rmtree(dst_attachments)
             shutil.copytree(self.attachments.root, dst_attachments)
 
-        # сборка zip [web:189][web:207]
+        # сборка zip
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(temp_dir):
                 for name in files:
@@ -152,7 +152,7 @@ class BugService:
             shutil.rmtree(temp_dir)
         os.makedirs(temp_dir, exist_ok=True)
 
-        # распаковываем архив [web:207]
+        # распаковываем архив
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(temp_dir)
 
