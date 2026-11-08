@@ -1,6 +1,6 @@
 [project]
 name = "bug-tracker-portable"
-version = "0.2.1"
+version = "0.5.0"
 description = ""
 authors = [
     {name = "Viktor",email = "klarkkent0314@gmail.com"}
@@ -17,3 +17,26 @@ dependencies = [
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[dependency-groups]
+lint = [
+    "black (>=26.10.1,<27.0.0)"
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312", "py313"]
+
+include = '\.pyi?$'
+
+extend-exclude = '''
+/(
+    \.venv
+  | venv
+  | build
+  | dist
+  | __pycache__
+  | attachments
+  | _export_tmp
+  | _import_tmp
+)/
+'''

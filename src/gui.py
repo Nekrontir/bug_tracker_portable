@@ -3,7 +3,7 @@ import os
 import textwrap
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut, QCloseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -70,25 +70,25 @@ class BugTrackerWindow(QMainWindow):
         self.copied_bug_data: dict | None = None
 
         # Поля формы
-        self.title_edit: QLineEdit | None = None
-        self.priority_combo: QComboBox | None = None
-        self.status_combo: QComboBox | None = None
-        self.version_edit: QLineEdit | None = None
-        self.steps_edit: QTextEdit | None = None
+        self.title_edit: QLineEdit
+        self.priority_combo: QComboBox
+        self.status_combo: QComboBox
+        self.version_edit: QLineEdit
+        self.steps_edit: QTextEdit
 
         # Фильтры
-        self.filter_status_combo: QComboBox | None = None
-        self.filter_priority_combo: QComboBox | None = None
-        self.search_edit: QLineEdit | None = None
+        self.filter_status_combo: QComboBox
+        self.filter_priority_combo: QComboBox
+        self.search_edit: QLineEdit
 
         # Таблица
-        self.table: QTableWidget | None = None
+        self.table: QTableWidget
 
         # Тема
-        self.theme_combo: QComboBox | None = None
+        self.theme_combo: QComboBox
 
         # Флаг "импорт с заменой"
-        self.import_replace_checkbox: QCheckBox | None = None
+        self.import_replace_checkbox: QCheckBox
 
         self.build_ui()
         self.refresh_table()
@@ -299,8 +299,7 @@ class BugTrackerWindow(QMainWindow):
             "table_columns": cols_widths,
         }
 
-    def closeEvent(self, event):
-        # Сохраняем настройки при закрытии
+    def closeEvent(self, event: QCloseEvent) -> None:
         self.settings.update(self.collect_current_settings())
         save_settings(self.settings)
         event.accept()
@@ -495,7 +494,7 @@ class BugTrackerWindow(QMainWindow):
             "Удаление",
             warn_text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
+        )
         if reply != QMessageBox.StandardButton.Yes:
             return False
 
@@ -511,8 +510,7 @@ class BugTrackerWindow(QMainWindow):
 
         ids = sorted(self.selected_for_delete)
         bugs_with_attachments = [
-            b_id for b_id in ids
-            if getattr(self.service.get_by_id(b_id), "attachments", [])
+            b_id for b_id in ids if getattr(self.service.get_by_id(b_id), "attachments", [])
         ]
 
         if bugs_with_attachments:
@@ -529,7 +527,7 @@ class BugTrackerWindow(QMainWindow):
             "Удаление",
             text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
+        )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
@@ -621,6 +619,7 @@ class BugTrackerWindow(QMainWindow):
             try:
                 import subprocess
                 import sys as _sys
+
                 if _sys.platform.startswith("win"):
                     os.startfile(path)
                 elif _sys.platform == "darwin":
@@ -638,6 +637,7 @@ class BugTrackerWindow(QMainWindow):
             try:
                 import subprocess
                 import sys as _sys
+
                 if _sys.platform.startswith("win"):
                     os.startfile(folder)
                 elif _sys.platform == "darwin":
@@ -664,19 +664,25 @@ class BugTrackerWindow(QMainWindow):
     # ---------------- Экспорт / импорт ----------------
 
     def export_bugs(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Экспорт багов (ZIP или JSON)",
-            filter="ZIP archive (*.zip);;JSON files (*.json);;All files (*.*)",
-            defaultSuffix="zip",
-        )
+        dialog = QFileDialog(self)
+        dialog.setWindowTitle("Экспорт багов (ZIP или JSON)")
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setNameFilter("ZIP archive (*.zip);;JSON files (*.json);;All files (*.*)")
+        dialog.setDefaultSuffix("zip")
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        path = dialog.selectedFiles()[0]
         if not path:
             return
+
         try:
             if path.lower().endswith(".json"):
                 self.service.storage.export_to_file(path, self.service.bugs)
             else:
                 self.service.export_bugs(path)
+
             QMessageBox.information(self, "Экспорт", "Экспорт успешно завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка экспорта", str(e))
@@ -700,11 +706,17 @@ class BugTrackerWindow(QMainWindow):
     # ---------------- Хоткеи ----------------
 
     def bind_shortcuts(self):
-        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new_shortcut)
-        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.on_save_shortcut)
-        QShortcut(QKeySequence("Delete"), self, activated=self.on_delete_shortcut)
-        QShortcut(QKeySequence("Ctrl+C"), self, activated=self.on_copy_shortcut)
-        QShortcut(QKeySequence("Ctrl+V"), self, activated=self.on_paste_shortcut)
+        shortcuts = {
+            "Ctrl+N": self.on_new_shortcut,
+            "Ctrl+S": self.on_save_shortcut,
+            "Delete": self.on_delete_shortcut,
+            "Ctrl+C": self.on_copy_shortcut,
+            "Ctrl+V": self.on_paste_shortcut,
+        }
+
+        for key, handler in shortcuts.items():
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(handler)
 
     def on_new_shortcut(self):
         self.clear_inputs()

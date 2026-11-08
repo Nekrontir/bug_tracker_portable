@@ -8,6 +8,7 @@ class Bug:
     """
     Модель бага для локального баг-трекера.
     """
+
     id: int
     title: str
     status: str
@@ -19,12 +20,12 @@ class Bug:
 
     @staticmethod
     def create_new(
-            bug_id: int,
-            title: str,
-            priority: str,
-            status: str = "Open",
-            steps: str = "",
-            version: str = ""
+        bug_id: int,
+        title: str,
+        priority: str,
+        status: str = "Open",
+        steps: str = "",
+        version: str = "",
     ):
         """
         Создаёт новый баг с текущим временем создания.
@@ -37,7 +38,7 @@ class Bug:
             steps=steps,
             version=version,
             created_at=datetime.now().isoformat(timespec="seconds"),
-            attachments=[]
+            attachments=[],
         )
 
     def to_dict(self):

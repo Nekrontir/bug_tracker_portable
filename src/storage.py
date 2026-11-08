@@ -32,7 +32,12 @@ class BugStorage:
 
     def export_to_file(self, path: str, bugs):
         with open(path, "w", encoding="utf-8") as f:
-            json.dump([bug.to_dict() for bug in bugs], f, ensure_ascii=False, indent=2)
+            json.dump(
+                [bug.to_dict() for bug in bugs],
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
 
     def import_from_file(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
