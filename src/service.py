@@ -27,9 +27,15 @@ class BugService:
                 return bug
         return None
 
-    def add_bug(self, title: str, priority: str,
-                status: str = "Open", steps: str = "",
-                version: str = "", file_paths: list[str] | None = None):
+    def add_bug(
+        self,
+        title: str,
+        priority: str,
+        status: str = "Open",
+        steps: str = "",
+        version: str = "",
+        file_paths: list[str] | None = None,
+    ):
         bug = Bug.create_new(self.next_id(), title, priority, status, steps, version)
         if file_paths:
             bug.attachments = self.attachments.add_attachments(bug.id, file_paths)
@@ -45,8 +51,9 @@ class BugService:
             return True
         return False
 
-    def update_bug(self, bug_id: int, title: str, priority: str,
-                   status: str, steps: str, version: str):
+    def update_bug(
+        self, bug_id: int, title: str, priority: str, status: str, steps: str, version: str
+    ):
         bug = self.get_by_id(bug_id)
         if not bug:
             return False
@@ -70,9 +77,9 @@ class BugService:
 
     # ---------- фильтрация / поиск ----------
 
-    def filter_bugs(self, status: str | None = None,
-                    priority: str | None = None,
-                    query: str | None = None):
+    def filter_bugs(
+        self, status: str | None = None, priority: str | None = None, query: str | None = None
+    ):
         result = self.bugs
 
         if status and status != "All":

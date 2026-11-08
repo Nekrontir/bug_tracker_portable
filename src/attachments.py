@@ -29,7 +29,7 @@ class AttachmentsManager:
         for src in file_paths:
             name = os.path.basename(src)
             dst = os.path.join(folder, name)
-            shutil.copy2(src, dst)  # сохраняем метаданные файла [web:202][web:203]
+            shutil.copy2(src, dst)  # сохраняем метаданные файла
             saved_names.append(name)
         return saved_names
 

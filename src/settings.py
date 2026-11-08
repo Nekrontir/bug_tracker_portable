@@ -8,7 +8,6 @@ import os
 import sys
 from typing import Any, Dict
 
-
 SETTINGS_FILENAME = "settings.json"
 
 
